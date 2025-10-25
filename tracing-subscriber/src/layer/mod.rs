@@ -1518,7 +1518,9 @@ pub struct Identity {
 
 #[derive(Clone, Copy)]
 pub(crate) struct NoneLayerMarker(());
-static NONE_LAYER_MARKER: NoneLayerMarker = NoneLayerMarker(());
+rubicon::process_local! {
+    static TRACING_SUBSCRIBER_NONE_LAYER_MARKER: NoneLayerMarker = NoneLayerMarker(());
+}
 
 /// Is a type implementing `Layer` `Option::<_>::None`?
 pub(crate) fn layer_is_none<L, S>(layer: &L) -> bool
@@ -1666,7 +1668,7 @@ where
         if id == TypeId::of::<Self>() {
             Some(self as *const _ as *const ())
         } else if id == TypeId::of::<NoneLayerMarker>() && self.is_none() {
-            Some(&NONE_LAYER_MARKER as *const _ as *const ())
+            Some(&TRACING_SUBSCRIBER_NONE_LAYER_MARKER as *const _ as *const ())
         } else {
             self.as_ref().and_then(|inner| inner.downcast_raw(id))
         }

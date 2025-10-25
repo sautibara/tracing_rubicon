@@ -111,61 +111,66 @@ impl State {
 // like and whether subscribers will actually be interested in it, since nothing will actually
 // be logged from it.
 
-static INTEREST_CACHE_EPOCH: AtomicUsize = AtomicUsize::new(0);
+rubicon::process_local! {
+    static TRACING_LOG_INTEREST_CACHE_EPOCH: AtomicUsize = AtomicUsize::new(0);
+}
 
 fn interest_cache_epoch() -> usize {
-    INTEREST_CACHE_EPOCH.load(Ordering::Relaxed)
+    TRACING_LOG_INTEREST_CACHE_EPOCH.load(Ordering::Relaxed)
 }
 
 struct SentinelCallsite;
 
 impl tracing_core::Callsite for SentinelCallsite {
     fn set_interest(&self, _: tracing_core::subscriber::Interest) {
-        INTEREST_CACHE_EPOCH.fetch_add(1, Ordering::SeqCst);
+        TRACING_LOG_INTEREST_CACHE_EPOCH.fetch_add(1, Ordering::SeqCst);
     }
 
     fn metadata(&self) -> &tracing_core::Metadata<'_> {
-        &SENTINEL_METADATA
+        &TRACING_LOG_INTEREST_CACHE_SENTINEL_METADATA
     }
 }
 
-static SENTINEL_CALLSITE: SentinelCallsite = SentinelCallsite;
-static SENTINEL_METADATA: tracing_core::Metadata<'static> = tracing_core::Metadata::new(
-    "log interest cache",
-    "log",
-    tracing_core::Level::ERROR,
-    None,
-    None,
-    None,
-    tracing_core::field::FieldSet::new(&[], tracing_core::identify_callsite!(&SENTINEL_CALLSITE)),
-    tracing_core::metadata::Kind::EVENT,
-);
+rubicon::process_local! {
+    static TRACING_LOG_INTEREST_CACHE_SENTINEL_CALLSITE: SentinelCallsite = SentinelCallsite;
+    static TRACING_LOG_INTEREST_CACHE_SENTINEL_METADATA: tracing_core::Metadata<'static> = tracing_core::Metadata::new(
+        "log interest cache",
+        "log",
+        tracing_core::Level::ERROR,
+        None,
+        None,
+        None,
+        tracing_core::field::FieldSet::new(&[], tracing_core::identify_callsite!(&TRACING_LOG_INTEREST_CACHE_SENTINEL_CALLSITE)),
+        tracing_core::metadata::Kind::EVENT,
+    );
 
-static CONFIG: Lazy<Mutex<InterestCacheConfig>> = Lazy::new(|| {
-    tracing_core::callsite::register(&SENTINEL_CALLSITE);
-    Mutex::new(InterestCacheConfig::disabled())
-});
+    static TRACING_LOG_INTEREST_CACHE_CONFIG: Lazy<Mutex<InterestCacheConfig>> = Lazy::new(|| {
+        tracing_core::callsite::register(&TRACING_LOG_INTEREST_CACHE_SENTINEL_CALLSITE);
+        Mutex::new(InterestCacheConfig::disabled())
+    });
+}
 
-thread_local! {
-    static STATE: RefCell<State> = {
-        let config = CONFIG.lock().unwrap();
+rubicon::thread_local! {
+    static TRACING_LOG_INTEREST_CACHE_STATE: RefCell<State> = {
+        let config = TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap();
         RefCell::new(State::new(interest_cache_epoch(), &config))
     };
 }
 
 pub(crate) fn configure(new_config: Option<InterestCacheConfig>) {
-    *CONFIG.lock().unwrap() = new_config.unwrap_or_else(InterestCacheConfig::disabled);
-    INTEREST_CACHE_EPOCH.fetch_add(1, Ordering::SeqCst);
+    *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() =
+        new_config.unwrap_or_else(InterestCacheConfig::disabled);
+    TRACING_LOG_INTEREST_CACHE_EPOCH.fetch_add(1, Ordering::SeqCst);
 }
 
 pub(crate) fn try_cache(metadata: &Metadata<'_>, callback: impl FnOnce() -> bool) -> bool {
-    STATE.with(|state| {
+    TRACING_LOG_INTEREST_CACHE_STATE.with(|state| {
         let mut state = state.borrow_mut();
 
         // If the interest cache in core was rebuilt we need to reset the cache here too.
         let epoch = interest_cache_epoch();
         if epoch != state.epoch {
-            *state = State::new(epoch, &CONFIG.lock().unwrap());
+            *state = State::new(epoch, &TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap());
         }
 
         let level = metadata.level();
@@ -247,7 +252,7 @@ mod tests {
     fn test_when_disabled_the_callback_is_always_called() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::disabled();
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() = InterestCacheConfig::disabled();
 
         std::thread::spawn(|| {
             let metadata = log::MetadataBuilder::new()
@@ -274,7 +279,8 @@ mod tests {
     fn test_when_enabled_the_callback_is_called_only_once_for_a_high_enough_verbosity() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::default().with_min_verbosity(Level::Debug);
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() =
+            InterestCacheConfig::default().with_min_verbosity(Level::Debug);
 
         std::thread::spawn(|| {
             let metadata = log::MetadataBuilder::new()
@@ -301,7 +307,8 @@ mod tests {
     fn test_when_core_interest_cache_is_rebuilt_this_cache_is_also_flushed() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::default().with_min_verbosity(Level::Debug);
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() =
+            InterestCacheConfig::default().with_min_verbosity(Level::Debug);
 
         std::thread::spawn(|| {
             let metadata = log::MetadataBuilder::new()
@@ -342,7 +349,8 @@ mod tests {
     fn test_when_enabled_the_callback_is_always_called_for_a_low_enough_verbosity() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::default().with_min_verbosity(Level::Debug);
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() =
+            InterestCacheConfig::default().with_min_verbosity(Level::Debug);
 
         std::thread::spawn(|| {
             let metadata = log::MetadataBuilder::new()
@@ -369,7 +377,8 @@ mod tests {
     fn test_different_log_levels_are_cached_separately() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::default().with_min_verbosity(Level::Debug);
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() =
+            InterestCacheConfig::default().with_min_verbosity(Level::Debug);
 
         std::thread::spawn(|| {
             let metadata_debug = log::MetadataBuilder::new()
@@ -409,7 +418,8 @@ mod tests {
     fn test_different_log_targets_are_cached_separately() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::default().with_min_verbosity(Level::Debug);
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() =
+            InterestCacheConfig::default().with_min_verbosity(Level::Debug);
 
         std::thread::spawn(|| {
             let metadata_1 = log::MetadataBuilder::new()
@@ -449,7 +459,7 @@ mod tests {
     fn test_when_cache_runs_out_of_space_the_callback_is_called_again() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::default()
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() = InterestCacheConfig::default()
             .with_min_verbosity(Level::Debug)
             .with_lru_cache_size(1);
 
@@ -487,7 +497,8 @@ mod tests {
     fn test_cache_returns_previously_computed_value() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::default().with_min_verbosity(Level::Debug);
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() =
+            InterestCacheConfig::default().with_min_verbosity(Level::Debug);
 
         std::thread::spawn(|| {
             let metadata_1 = log::MetadataBuilder::new()
@@ -511,7 +522,8 @@ mod tests {
     fn test_cache_handles_non_static_target_string() {
         let _lock = lock_for_test();
 
-        *CONFIG.lock().unwrap() = InterestCacheConfig::default().with_min_verbosity(Level::Debug);
+        *TRACING_LOG_INTEREST_CACHE_CONFIG.lock().unwrap() =
+            InterestCacheConfig::default().with_min_verbosity(Level::Debug);
 
         std::thread::spawn(|| {
             let mut target = *b"dummy_1";

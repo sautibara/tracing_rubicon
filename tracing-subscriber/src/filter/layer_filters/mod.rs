@@ -171,8 +171,8 @@ impl DebugCounters {
     }
 }
 
-thread_local! {
-    pub(crate) static FILTERING: FilterState = const { FilterState::new() };
+rubicon::thread_local! {
+    pub(crate) static TRACING_SUBSCRIBER_FILTERING: FilterState = const { FilterState::new() };
 }
 
 /// Extension trait adding [combinators] for combining [`Filter`].
@@ -639,7 +639,7 @@ impl<L, F, S> Filtered<L, F, S> {
     }
 
     fn did_enable(&self, f: impl FnOnce()) {
-        FILTERING.with(|filtering| filtering.did_enable(self.id(), f))
+        TRACING_SUBSCRIBER_FILTERING.with(|filtering| filtering.did_enable(self.id(), f))
     }
 
     /// Borrows the [`Filter`](crate::layer::Filter) used by this layer.
@@ -752,7 +752,7 @@ where
 
         // Add our `Interest` to the current sum of per-layer filter `Interest`s
         // for this callsite.
-        FILTERING.with(|filtering| filtering.add_interest(interest));
+        TRACING_SUBSCRIBER_FILTERING.with(|filtering| filtering.add_interest(interest));
 
         // don't short circuit! if the stack consists entirely of `Layer`s with
         // per-layer filters, the `Registry` will return the actual `Interest`
@@ -766,7 +766,7 @@ where
     fn enabled(&self, metadata: &Metadata<'_>, cx: Context<'_, S>) -> bool {
         let cx = cx.with_filter(self.id());
         let enabled = self.filter.enabled(metadata, &cx);
-        FILTERING.with(|filtering| filtering.set(self.id(), enabled));
+        TRACING_SUBSCRIBER_FILTERING.with(|filtering| filtering.set(self.id(), enabled));
 
         if enabled {
             // If the filter enabled this metadata, ask the wrapped layer if
@@ -820,7 +820,7 @@ where
 
     fn event_enabled(&self, event: &Event<'_>, cx: Context<'_, S>) -> bool {
         let cx = cx.with_filter(self.id());
-        let enabled = FILTERING
+        let enabled = TRACING_SUBSCRIBER_FILTERING
             .with(|filtering| filtering.and(self.id(), || self.filter.event_enabled(event, &cx)));
 
         if enabled {
@@ -1149,7 +1149,7 @@ impl FilterState {
     }
 
     pub(crate) fn event_enabled() -> bool {
-        FILTERING
+        TRACING_SUBSCRIBER_FILTERING
             .try_with(|this| {
                 let enabled = this.enabled.get().any_enabled();
                 #[cfg(debug_assertions)]
@@ -1221,7 +1221,7 @@ impl FilterState {
         // Drop the `Result` returned by `try_with` --- if we are in the middle
         // a panic and the thread-local has been torn down, that's fine, just
         // ignore it ratehr than panicking.
-        let _ = FILTERING.try_with(|filtering| {
+        let _ = TRACING_SUBSCRIBER_FILTERING.try_with(|filtering| {
             filtering.enabled.set(FilterMap::new());
 
             #[cfg(debug_assertions)]
@@ -1230,7 +1230,7 @@ impl FilterState {
     }
 
     pub(crate) fn take_interest() -> Option<Interest> {
-        FILTERING
+        TRACING_SUBSCRIBER_FILTERING
             .try_with(|filtering| {
                 #[cfg(debug_assertions)]
                 {

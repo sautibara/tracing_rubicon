@@ -242,7 +242,9 @@ pub struct LevelFilter(Option<Level>);
 #[derive(Clone, Debug)]
 pub struct ParseLevelFilterError(());
 
-static MAX_LEVEL: AtomicUsize = AtomicUsize::new(LevelFilter::OFF_USIZE);
+rubicon::process_local! {
+    static TRACING_CORE_METADATA_MAX_LEVEL: AtomicUsize = AtomicUsize::new(LevelFilter::OFF_USIZE);
+}
 
 // ===== impl Metadata =====
 
@@ -694,7 +696,7 @@ impl LevelFilter {
     /// [`Subscriber`]: super::Subscriber
     #[inline(always)]
     pub fn current() -> Self {
-        match MAX_LEVEL.load(Ordering::Relaxed) {
+        match TRACING_CORE_METADATA_MAX_LEVEL.load(Ordering::Relaxed) {
             Self::ERROR_USIZE => Self::ERROR,
             Self::WARN_USIZE => Self::WARN,
             Self::INFO_USIZE => Self::INFO,
@@ -742,7 +744,7 @@ impl LevelFilter {
 
         // using an AcqRel swap ensures an ordered relationship of writes to the
         // max level.
-        MAX_LEVEL.swap(val, Ordering::AcqRel);
+        TRACING_CORE_METADATA_MAX_LEVEL.swap(val, Ordering::AcqRel);
     }
 }
 

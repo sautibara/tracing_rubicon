@@ -236,7 +236,7 @@ impl<'a> AsTrace for log::Metadata<'a> {
             None,
             None,
             None,
-            field::FieldSet::new(FIELD_NAMES, cs_id),
+            field::FieldSet::new(TRACING_LOG_FIELD_NAMES, cs_id),
             Kind::EVENT,
         )
     }
@@ -250,13 +250,15 @@ struct Fields {
     line: field::Field,
 }
 
-static FIELD_NAMES: &[&str] = &[
-    "message",
-    "log.target",
-    "log.module_path",
-    "log.file",
-    "log.line",
-];
+rubicon::process_local! {
+    static TRACING_LOG_FIELD_NAMES: &[&str] = &[
+        "message",
+        "log.target",
+        "log.module_path",
+        "log.file",
+        "log.line",
+    ];
+}
 
 impl Fields {
     fn new(cs: &'static dyn Callsite) -> Self {
@@ -279,17 +281,19 @@ impl Fields {
 macro_rules! log_cs {
     ($level:expr, $cs:ident, $meta:ident, $ty:ident) => {
         struct $ty;
-        static $cs: $ty = $ty;
-        static $meta: Metadata<'static> = Metadata::new(
-            "log event",
-            "log",
-            $level,
-            ::core::option::Option::None,
-            ::core::option::Option::None,
-            ::core::option::Option::None,
-            field::FieldSet::new(FIELD_NAMES, identify_callsite!(&$cs)),
-            Kind::EVENT,
-        );
+        rubicon::process_local! {
+            static $cs: $ty = $ty;
+            static $meta: Metadata<'static> = Metadata::new(
+                "log event",
+                "log",
+                $level,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                field::FieldSet::new(TRACING_LOG_FIELD_NAMES, identify_callsite!(&$cs)),
+                Kind::EVENT,
+            );
+        }
 
         impl callsite::Callsite for $ty {
             fn set_interest(&self, _: subscriber::Interest) {}
@@ -302,38 +306,50 @@ macro_rules! log_cs {
 
 log_cs!(
     tracing_core::Level::TRACE,
-    TRACE_CS,
-    TRACE_META,
+    TRACING_LOG_TRACE_CS,
+    TRACING_LOG_TRACE_META,
     TraceCallsite
 );
 log_cs!(
     tracing_core::Level::DEBUG,
-    DEBUG_CS,
-    DEBUG_META,
+    TRACING_LOG_DEBUG_CS,
+    TRACING_LOG_DEBUG_META,
     DebugCallsite
 );
-log_cs!(tracing_core::Level::INFO, INFO_CS, INFO_META, InfoCallsite);
-log_cs!(tracing_core::Level::WARN, WARN_CS, WARN_META, WarnCallsite);
+log_cs!(
+    tracing_core::Level::INFO,
+    TRACING_LOG_INFO_CS,
+    TRACING_LOG_INFO_META,
+    InfoCallsite
+);
+log_cs!(
+    tracing_core::Level::WARN,
+    TRACING_LOG_WARN_CS,
+    TRACING_LOG_WARN_META,
+    WarnCallsite
+);
 log_cs!(
     tracing_core::Level::ERROR,
-    ERROR_CS,
-    ERROR_META,
+    TRACING_LOG_ERROR_CS,
+    TRACING_LOG_ERROR_META,
     ErrorCallsite
 );
 
-static TRACE_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&TRACE_CS));
-static DEBUG_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&DEBUG_CS));
-static INFO_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&INFO_CS));
-static WARN_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&WARN_CS));
-static ERROR_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&ERROR_CS));
+rubicon::process_local! {
+    static TRACING_LOG_TRACE_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&TRACING_LOG_TRACE_CS));
+    static TRACING_LOG_DEBUG_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&TRACING_LOG_DEBUG_CS));
+    static TRACING_LOG_INFO_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&TRACING_LOG_INFO_CS));
+    static TRACING_LOG_WARN_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&TRACING_LOG_WARN_CS));
+    static TRACING_LOG_ERROR_FIELDS: Lazy<Fields> = Lazy::new(|| Fields::new(&TRACING_LOG_ERROR_CS));
+}
 
 fn level_to_cs(level: Level) -> (&'static dyn Callsite, &'static Fields) {
     match level {
-        Level::TRACE => (&TRACE_CS, &*TRACE_FIELDS),
-        Level::DEBUG => (&DEBUG_CS, &*DEBUG_FIELDS),
-        Level::INFO => (&INFO_CS, &*INFO_FIELDS),
-        Level::WARN => (&WARN_CS, &*WARN_FIELDS),
-        Level::ERROR => (&ERROR_CS, &*ERROR_FIELDS),
+        Level::TRACE => (&TRACING_LOG_TRACE_CS, &*TRACING_LOG_TRACE_FIELDS),
+        Level::DEBUG => (&TRACING_LOG_DEBUG_CS, &*TRACING_LOG_DEBUG_FIELDS),
+        Level::INFO => (&TRACING_LOG_INFO_CS, &*TRACING_LOG_INFO_FIELDS),
+        Level::WARN => (&TRACING_LOG_WARN_CS, &*TRACING_LOG_WARN_FIELDS),
+        Level::ERROR => (&TRACING_LOG_ERROR_CS, &*TRACING_LOG_ERROR_FIELDS),
     }
 }
 
@@ -345,11 +361,31 @@ fn loglevel_to_cs(
     &'static Metadata<'static>,
 ) {
     match level {
-        log::Level::Trace => (&TRACE_CS, &*TRACE_FIELDS, &TRACE_META),
-        log::Level::Debug => (&DEBUG_CS, &*DEBUG_FIELDS, &DEBUG_META),
-        log::Level::Info => (&INFO_CS, &*INFO_FIELDS, &INFO_META),
-        log::Level::Warn => (&WARN_CS, &*WARN_FIELDS, &WARN_META),
-        log::Level::Error => (&ERROR_CS, &*ERROR_FIELDS, &ERROR_META),
+        log::Level::Trace => (
+            &TRACING_LOG_TRACE_CS,
+            &*TRACING_LOG_TRACE_FIELDS,
+            &TRACING_LOG_TRACE_META,
+        ),
+        log::Level::Debug => (
+            &TRACING_LOG_DEBUG_CS,
+            &*TRACING_LOG_DEBUG_FIELDS,
+            &TRACING_LOG_DEBUG_META,
+        ),
+        log::Level::Info => (
+            &TRACING_LOG_INFO_CS,
+            &*TRACING_LOG_INFO_FIELDS,
+            &TRACING_LOG_INFO_META,
+        ),
+        log::Level::Warn => (
+            &TRACING_LOG_WARN_CS,
+            &*TRACING_LOG_WARN_FIELDS,
+            &TRACING_LOG_WARN_META,
+        ),
+        log::Level::Error => (
+            &TRACING_LOG_ERROR_CS,
+            &*TRACING_LOG_ERROR_FIELDS,
+            &TRACING_LOG_ERROR_META,
+        ),
     }
 }
 
@@ -366,7 +402,7 @@ impl<'a> AsTrace for log::Record<'a> {
             self.file(),
             self.line(),
             self.module_path(),
-            field::FieldSet::new(FIELD_NAMES, cs_id),
+            field::FieldSet::new(TRACING_LOG_FIELD_NAMES, cs_id),
             Kind::EVENT,
         )
     }

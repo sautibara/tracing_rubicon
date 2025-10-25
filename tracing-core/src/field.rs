@@ -674,7 +674,9 @@ impl fmt::Debug for dyn Value {
         // We are only going to be recording the field value, so we don't
         // actually care about the field name here.
         struct NullCallsite;
-        static NULL_CALLSITE: NullCallsite = NullCallsite;
+        rubicon::process_local! {
+            static TRACING_CORE_DYN_VALUE_NULL_CALLSITE: NullCallsite = NullCallsite;
+        }
         impl crate::callsite::Callsite for NullCallsite {
             fn set_interest(&self, _: crate::subscriber::Interest) {
                 unreachable!("you somehow managed to register the null callsite?")
@@ -685,15 +687,20 @@ impl fmt::Debug for dyn Value {
             }
         }
 
-        static FIELD: Field = Field {
-            i: 0,
-            fields: FieldSet::new(&[], crate::identify_callsite!(&NULL_CALLSITE)),
-        };
+        rubicon::process_local! {
+            static TRACING_CORE_DYN_VALUE_FIELD: Field = Field {
+                i: 0,
+                fields: FieldSet::new(&[], crate::identify_callsite!(&TRACING_CORE_DYN_VALUE_NULL_CALLSITE)),
+            };
+        }
 
         let mut res = Ok(());
-        self.record(&FIELD, &mut |_: &Field, val: &dyn fmt::Debug| {
-            res = write!(f, "{:?}", val);
-        });
+        self.record(
+            &TRACING_CORE_DYN_VALUE_FIELD,
+            &mut |_: &Field, val: &dyn fmt::Debug| {
+                res = write!(f, "{:?}", val);
+            },
+        );
         res
     }
 }

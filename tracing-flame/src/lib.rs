@@ -157,12 +157,14 @@ use tracing_subscriber::Layer;
 
 mod error;
 
-static START: Lazy<Instant> = Lazy::new(Instant::now);
+rubicon::process_local! {
+    static TRACING_FLAME_START: Lazy<Instant> = Lazy::new(Instant::now);
+}
 
-thread_local! {
-    static LAST_EVENT: Cell<Instant> = Cell::new(*START);
+rubicon::thread_local! {
+    static TRACING_FLAME_LAST_EVENT: Cell<Instant> = Cell::new(*TRACING_FLAME_START);
 
-    static THREAD_NAME: String = {
+    static TRACING_FLAME_THREAD_NAME: String = {
         let thread = std::thread::current();
         let mut thread_name = format!("{:?}", thread.id());
         if let Some(name) = thread.name() {
@@ -264,7 +266,7 @@ where
     pub fn new(writer: W) -> Self {
         // Initialize the start used by all threads when initializing the
         // LAST_EVENT when constructing the layer
-        let _unused = *START;
+        let _unused = *TRACING_FLAME_START;
         Self {
             out: Arc::new(Mutex::new(writer)),
             config: Default::default(),
@@ -398,7 +400,7 @@ where
         let mut stack = String::new();
 
         if !self.config.threads_collapsed {
-            THREAD_NAME.with(|name| stack += name.as_str());
+            TRACING_FLAME_THREAD_NAME.with(|name| stack += name.as_str());
         } else {
             stack += "all-threads";
         }
@@ -441,7 +443,7 @@ where
 
         let mut stack = String::new();
         if !self.config.threads_collapsed {
-            THREAD_NAME.with(|name| stack += name.as_str());
+            TRACING_FLAME_THREAD_NAME.with(|name| stack += name.as_str());
         } else {
             stack += "all-threads";
         }
@@ -471,7 +473,7 @@ where
     fn time_since_last_event(&self) -> Duration {
         let now = Instant::now();
 
-        let prev = LAST_EVENT.with(|e| {
+        let prev = TRACING_FLAME_LAST_EVENT.with(|e| {
             let prev = e.get();
             e.set(now);
             prev

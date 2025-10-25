@@ -190,7 +190,7 @@ impl Registry {
     /// For additional details, see [`CloseGuard`].
     ///
     pub(crate) fn start_close(&self, id: Id) -> CloseGuard<'_> {
-        CLOSE_COUNT.with(|count| {
+        TRACING_SUBSCRIBER_REGISTRY_CLOSE_COUNT.with(|count| {
             let c = count.get();
             count.set(c + 1);
         });
@@ -210,12 +210,12 @@ impl Registry {
     }
 }
 
-thread_local! {
+rubicon::thread_local! {
     /// `CLOSE_COUNT` is the thread-local counter used by `CloseGuard` to
     /// track how many layers have processed the close.
     /// For additional details, see [`CloseGuard`].
     ///
-    static CLOSE_COUNT: Cell<usize> = const { Cell::new(0) };
+    static TRACING_SUBSCRIBER_REGISTRY_CLOSE_COUNT: Cell<usize> = const { Cell::new(0) };
 }
 
 impl Subscriber for Registry {
@@ -253,7 +253,8 @@ impl Subscriber for Registry {
             .create_with(|data| {
                 data.metadata = attrs.metadata();
                 data.parent = parent;
-                data.filter_map = crate::filter::FILTERING.with(|filtering| filtering.filter_map());
+                data.filter_map = crate::filter::TRACING_SUBSCRIBER_FILTERING
+                    .with(|filtering| filtering.filter_map());
                 #[cfg(debug_assertions)]
                 {
                     if data.filter_map != FilterMap::new() {
@@ -395,7 +396,7 @@ impl Drop for CloseGuard<'_> {
         // If this returns with an error, we are already panicking. At
         // this point, there's nothing we can really do to recover
         // except by avoiding a double-panic.
-        let _ = CLOSE_COUNT.try_with(|count| {
+        let _ = TRACING_SUBSCRIBER_REGISTRY_CLOSE_COUNT.try_with(|count| {
             let c = count.get();
             // Decrement the count to indicate that _this_ guard's
             // `on_close` callback has completed.
@@ -471,19 +472,21 @@ impl Default for DataInner {
             }
         }
 
-        static NULL_CALLSITE: NullCallsite = NullCallsite;
-        static NULL_METADATA: Metadata<'static> = tracing_core::metadata! {
-            name: "",
-            target: "",
-            level: tracing_core::Level::TRACE,
-            fields: &[],
-            callsite: &NULL_CALLSITE,
-            kind: tracing_core::metadata::Kind::SPAN,
-        };
+        rubicon::process_local! {
+            static TRACING_SUBSCRIBER_REGISTRY_NULL_CALLSITE: NullCallsite = NullCallsite;
+            static TRACING_SUBSCRIBER_REGISTRY_NULL_METADATA: Metadata<'static> = tracing_core::metadata! {
+                name: "",
+                target: "",
+                level: tracing_core::Level::TRACE,
+                fields: &[],
+                callsite: &TRACING_SUBSCRIBER_REGISTRY_NULL_CALLSITE,
+                kind: tracing_core::metadata::Kind::SPAN,
+            };
+        }
 
         Self {
             filter_map: FilterMap::new(),
-            metadata: &NULL_METADATA,
+            metadata: &TRACING_SUBSCRIBER_REGISTRY_NULL_METADATA,
             parent: None,
             ref_count: AtomicUsize::new(0),
             extensions: RwLock::new(ExtensionsInner::new()),

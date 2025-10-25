@@ -220,7 +220,7 @@ pub struct DefaultCallsite {
 /// [`Subscriber`]: super::subscriber::Subscriber
 /// [cache-docs]: crate::callsite#rebuilding-cached-interest
 pub fn rebuild_interest_cache() {
-    CALLSITES.rebuild_interest(DISPATCHERS.rebuilder());
+    TRACING_CORE_CALLSITES.rebuild_interest(TRACING_CORE_CALLSITE_DISPATCHERS.rebuilder());
 }
 
 /// Register a new [`Callsite`] with the global registry.
@@ -244,22 +244,24 @@ pub fn register(callsite: &'static dyn Callsite) {
             // is not lying about its type ID.
             &*(callsite as *const dyn Callsite as *const DefaultCallsite)
         };
-        CALLSITES.push_default(callsite);
+        TRACING_CORE_CALLSITES.push_default(callsite);
     } else {
-        CALLSITES.push_dyn(callsite);
+        TRACING_CORE_CALLSITES.push_dyn(callsite);
     }
 
-    rebuild_callsite_interest(callsite, &DISPATCHERS.rebuilder());
+    rebuild_callsite_interest(callsite, &TRACING_CORE_CALLSITE_DISPATCHERS.rebuilder());
 }
 
-static CALLSITES: Callsites = Callsites {
-    list_head: AtomicPtr::new(ptr::null_mut()),
-    has_locked_callsites: AtomicBool::new(false),
-};
+rubicon::process_local! {
+    static TRACING_CORE_CALLSITES: Callsites = Callsites {
+        list_head: AtomicPtr::new(ptr::null_mut()),
+        has_locked_callsites: AtomicBool::new(false),
+    };
 
-static DISPATCHERS: Dispatchers = Dispatchers::new();
+    static TRACING_CORE_CALLSITE_DISPATCHERS: Dispatchers = Dispatchers::new();
 
-static LOCKED_CALLSITES: Lazy<Mutex<Vec<&'static dyn Callsite>>> = Lazy::new(Default::default);
+    static TRACING_CORE_LOCKED_CALLSITES: Lazy<Mutex<Vec<&'static dyn Callsite>>> = Lazy::new(Default::default);
+}
 
 struct Callsites {
     list_head: AtomicPtr<DefaultCallsite>,
@@ -315,8 +317,8 @@ impl DefaultCallsite {
         ) {
             Ok(_) => {
                 // Okay, we advanced the state, try to register the callsite.
-                CALLSITES.push_default(self);
-                rebuild_callsite_interest(self, &DISPATCHERS.rebuilder());
+                TRACING_CORE_CALLSITES.push_default(self);
+                rebuild_callsite_interest(self, &TRACING_CORE_CALLSITE_DISPATCHERS.rebuilder());
                 self.registration.store(Self::REGISTERED, Ordering::Release);
             }
             // Great, the callsite is already registered! Just load its
@@ -425,7 +427,7 @@ impl Callsites {
     ///
     /// This will attempt to lock the callsites vector.
     fn push_dyn(&self, callsite: &'static dyn Callsite) {
-        let mut lock = LOCKED_CALLSITES.lock().unwrap();
+        let mut lock = TRACING_CORE_LOCKED_CALLSITES.lock().unwrap();
         self.has_locked_callsites.store(true, Ordering::Release);
         lock.push(callsite);
     }
@@ -473,7 +475,7 @@ impl Callsites {
         }
 
         if self.has_locked_callsites.load(Ordering::Acquire) {
-            let locked = LOCKED_CALLSITES.lock().unwrap();
+            let locked = TRACING_CORE_LOCKED_CALLSITES.lock().unwrap();
             for &cs in locked.iter() {
                 f(cs);
             }
@@ -482,9 +484,9 @@ impl Callsites {
 }
 
 pub(crate) fn register_dispatch(dispatch: &Dispatch) {
-    let dispatchers = DISPATCHERS.register_dispatch(dispatch);
+    let dispatchers = TRACING_CORE_CALLSITE_DISPATCHERS.register_dispatch(dispatch);
     dispatch.subscriber().on_register_dispatch(dispatch);
-    CALLSITES.rebuild_interest(dispatchers);
+    TRACING_CORE_CALLSITES.rebuild_interest(dispatchers);
 }
 
 fn rebuild_callsite_interest(
@@ -525,8 +527,10 @@ mod dispatchers {
         has_just_one: AtomicBool,
     }
 
-    static LOCKED_DISPATCHERS: Lazy<RwLock<Vec<dispatcher::Registrar>>> =
-        Lazy::new(Default::default);
+    rubicon::process_local! {
+        static TRACING_CORE_CALLSITE_LOCKED_DISPATCHERS: Lazy<RwLock<Vec<dispatcher::Registrar>>> =
+            Lazy::new(Default::default);
+    }
 
     pub(super) enum Rebuilder<'a> {
         JustOne,
@@ -545,11 +549,11 @@ mod dispatchers {
             if self.has_just_one.load(Ordering::SeqCst) {
                 return Rebuilder::JustOne;
             }
-            Rebuilder::Read(LOCKED_DISPATCHERS.read().unwrap())
+            Rebuilder::Read(TRACING_CORE_CALLSITE_LOCKED_DISPATCHERS.read().unwrap())
         }
 
         pub(super) fn register_dispatch(&self, dispatch: &dispatcher::Dispatch) -> Rebuilder<'_> {
-            let mut dispatchers = LOCKED_DISPATCHERS.write().unwrap();
+            let mut dispatchers = TRACING_CORE_CALLSITE_LOCKED_DISPATCHERS.write().unwrap();
             dispatchers.retain(|d| d.upgrade().is_some());
             dispatchers.push(dispatch.registrar());
             self.has_just_one

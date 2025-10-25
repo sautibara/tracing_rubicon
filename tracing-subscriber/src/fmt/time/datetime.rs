@@ -266,7 +266,7 @@ impl From<std::time::SystemTime> for DateTime {
         const DAYS_PER_400Y: i32 = 365 * 400 + 97;
         const DAYS_PER_100Y: i32 = 365 * 100 + 24;
         const DAYS_PER_4Y: i32 = 365 * 4 + 1;
-        static DAYS_IN_MONTH: [i8; 12] = [31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 31, 29];
+        const DAYS_IN_MONTH: [i8; 12] = [31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 31, 29];
 
         // Note(dcb): this bit is rearranged slightly to avoid integer overflow.
         let mut days: i64 = (t / 86_400) - (LEAPOCH / 86_400);

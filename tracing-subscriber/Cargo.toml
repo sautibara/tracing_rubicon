@@ -42,6 +42,7 @@ regex = []
 
 [dependencies]
 tracing-core = { path = "../tracing-core", version = "0.1.33", default-features = false }
+rubicon = "3.0"
 
 # only required by the filter feature
 tracing = { optional = true, path = "../tracing", version = "0.1.41", default-features = false }

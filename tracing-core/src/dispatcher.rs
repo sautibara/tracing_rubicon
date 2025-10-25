@@ -180,8 +180,8 @@ enum Kind<T> {
 }
 
 #[cfg(feature = "std")]
-std::thread_local! {
-    static CURRENT_STATE: State = const {
+rubicon::thread_local! {
+    static TRACING_DISPATCHER_CURRENT_STATE: State = const {
         State {
             default: RefCell::new(None),
             can_enter: Cell::new(true),
@@ -189,23 +189,25 @@ std::thread_local! {
     };
 }
 
-static EXISTS: AtomicBool = AtomicBool::new(false);
-static GLOBAL_INIT: AtomicUsize = AtomicUsize::new(UNINITIALIZED);
-
-#[cfg(feature = "std")]
-static SCOPED_COUNT: AtomicUsize = AtomicUsize::new(0);
-
 const UNINITIALIZED: usize = 0;
 const INITIALIZING: usize = 1;
 const INITIALIZED: usize = 2;
 
-static mut GLOBAL_DISPATCH: Dispatch = Dispatch {
-    subscriber: Kind::Global(&NO_SUBSCRIBER),
-};
-static NONE: Dispatch = Dispatch {
-    subscriber: Kind::Global(&NO_SUBSCRIBER),
-};
-static NO_SUBSCRIBER: NoSubscriber = NoSubscriber::new();
+rubicon::process_local! {
+    static TRACING_DISPATCHER_EXISTS: AtomicBool = AtomicBool::new(false);
+    static TRACING_DISPATCHER_GLOBAL_INIT: AtomicUsize = AtomicUsize::new(UNINITIALIZED);
+
+    #[cfg(feature = "std")]
+    static TRACING_DISPATCHER_SCOPED_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    static mut TRACING_DISPATCH_GLOBAL: Dispatch = Dispatch {
+        subscriber: Kind::Global(&TRACING_DISPATCH_NO_SUBSCRIBER),
+    };
+    static TRACING_DISPATCH_NONE: Dispatch = Dispatch {
+        subscriber: Kind::Global(&TRACING_DISPATCH_NO_SUBSCRIBER),
+    };
+    static TRACING_DISPATCH_NO_SUBSCRIBER: NoSubscriber = NoSubscriber::new();
+}
 
 /// The dispatch state of a thread.
 #[cfg(feature = "std")]
@@ -299,7 +301,7 @@ pub fn set_default(dispatcher: &Dispatch) -> DefaultGuard {
 pub fn set_global_default(dispatcher: Dispatch) -> Result<(), SetGlobalDefaultError> {
     // if `compare_exchange` returns Result::Ok(_), then `new` has been set and
     // `current`—now the prior value—has been returned in the `Ok()` branch.
-    if GLOBAL_INIT
+    if TRACING_DISPATCHER_GLOBAL_INIT
         .compare_exchange(
             UNINITIALIZED,
             INITIALIZING,
@@ -321,10 +323,10 @@ pub fn set_global_default(dispatcher: Dispatch) -> Result<(), SetGlobalDefaultEr
             Kind::Global(subscriber)
         };
         unsafe {
-            GLOBAL_DISPATCH = Dispatch { subscriber };
+            TRACING_DISPATCH_GLOBAL = Dispatch { subscriber };
         }
-        GLOBAL_INIT.store(INITIALIZED, Ordering::SeqCst);
-        EXISTS.store(true, Ordering::Release);
+        TRACING_DISPATCHER_GLOBAL_INIT.store(INITIALIZED, Ordering::SeqCst);
+        TRACING_DISPATCHER_EXISTS.store(true, Ordering::Release);
         Ok(())
     } else {
         Err(SetGlobalDefaultError { _no_construct: () })
@@ -338,7 +340,7 @@ pub fn set_global_default(dispatcher: Dispatch) -> Result<(), SetGlobalDefaultEr
 #[doc(hidden)]
 #[inline(always)]
 pub fn has_been_set() -> bool {
-    EXISTS.load(Ordering::Relaxed)
+    TRACING_DISPATCHER_EXISTS.load(Ordering::Relaxed)
 }
 
 /// Returned if setting the global dispatcher fails.
@@ -380,21 +382,21 @@ pub fn get_default<T, F>(mut f: F) -> T
 where
     F: FnMut(&Dispatch) -> T,
 {
-    if SCOPED_COUNT.load(Ordering::Acquire) == 0 {
+    if TRACING_DISPATCHER_SCOPED_COUNT.load(Ordering::Acquire) == 0 {
         // fast path if no scoped dispatcher has been set; just use the global
         // default.
         return f(get_global());
     }
 
-    CURRENT_STATE
+    TRACING_DISPATCHER_CURRENT_STATE
         .try_with(|state| {
             if let Some(entered) = state.enter() {
                 return f(&entered.current());
             }
 
-            f(&NONE)
+            f(&TRACING_DISPATCH_NONE)
         })
-        .unwrap_or_else(|_| f(&NONE))
+        .unwrap_or_else(|_| f(&TRACING_DISPATCH_NONE))
 }
 
 /// Executes a closure with a reference to this thread's current [dispatcher].
@@ -408,13 +410,13 @@ where
 #[doc(hidden)]
 #[inline(never)]
 pub fn get_current<T>(f: impl FnOnce(&Dispatch) -> T) -> Option<T> {
-    if SCOPED_COUNT.load(Ordering::Acquire) == 0 {
+    if TRACING_DISPATCHER_SCOPED_COUNT.load(Ordering::Acquire) == 0 {
         // fast path if no scoped dispatcher has been set; just use the global
         // default.
         return Some(f(get_global()));
     }
 
-    CURRENT_STATE
+    TRACING_DISPATCHER_CURRENT_STATE
         .try_with(|state| {
             let entered = state.enter()?;
             Some(f(&entered.current()))
@@ -444,13 +446,13 @@ where
 
 #[inline]
 fn get_global() -> &'static Dispatch {
-    if GLOBAL_INIT.load(Ordering::SeqCst) != INITIALIZED {
-        return &NONE;
+    if TRACING_DISPATCHER_GLOBAL_INIT.load(Ordering::SeqCst) != INITIALIZED {
+        return &TRACING_DISPATCH_NONE;
     }
     unsafe {
         // This is safe given the invariant that setting the global dispatcher
         // also sets `GLOBAL_INIT` to `INITIALIZED`.
-        &*addr_of!(GLOBAL_DISPATCH)
+        &*addr_of!(TRACING_DISPATCH_GLOBAL)
     }
 }
 
@@ -462,7 +464,7 @@ impl Dispatch {
     #[inline]
     pub fn none() -> Self {
         Dispatch {
-            subscriber: Kind::Global(&NO_SUBSCRIBER),
+            subscriber: Kind::Global(&TRACING_DISPATCH_NO_SUBSCRIBER),
         }
     }
 
@@ -839,15 +841,15 @@ impl State {
     /// the previous value.
     #[inline]
     fn set_default(new_dispatch: Dispatch) -> DefaultGuard {
-        let prior = CURRENT_STATE
+        let prior = TRACING_DISPATCHER_CURRENT_STATE
             .try_with(|state| {
                 state.can_enter.set(true);
                 state.default.replace(Some(new_dispatch))
             })
             .ok()
             .flatten();
-        EXISTS.store(true, Ordering::Release);
-        SCOPED_COUNT.fetch_add(1, Ordering::Release);
+        TRACING_DISPATCHER_EXISTS.store(true, Ordering::Release);
+        TRACING_DISPATCHER_SCOPED_COUNT.fetch_add(1, Ordering::Release);
         DefaultGuard(prior)
     }
 
@@ -894,8 +896,9 @@ impl Drop for DefaultGuard {
         // lead to the drop of a subscriber which, in the process,
         // could then also attempt to access the same thread local
         // state -- causing a clash.
-        let prev = CURRENT_STATE.try_with(|state| state.default.replace(self.0.take()));
-        SCOPED_COUNT.fetch_sub(1, Ordering::Release);
+        let prev =
+            TRACING_DISPATCHER_CURRENT_STATE.try_with(|state| state.default.replace(self.0.take()));
+        TRACING_DISPATCHER_SCOPED_COUNT.fetch_sub(1, Ordering::Release);
         drop(prev)
     }
 }
