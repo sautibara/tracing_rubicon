@@ -125,7 +125,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg), deny(rustdoc::broken_intra_doc_links))]
 #![warn(
     missing_debug_implementations,
-    missing_docs,
     rust_2018_idioms,
     unreachable_pub,
     bad_style,
@@ -307,4 +306,15 @@ pub use self::{metadata::Kind, subscriber::Interest};
 
 mod sealed {
     pub trait Sealed {}
+}
+
+#[cfg(feature = "std")]
+use std::prelude::rust_2024::*;
+#[cfg(feature = "std")]
+#[allow(unused_imports)]
+use std::{format, vec};
+
+#[cfg(feature = "std")]
+rubicon::compatibility_check! {
+    ("version", env!("CARGO_PKG_VERSION")),
 }

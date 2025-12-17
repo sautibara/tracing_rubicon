@@ -463,8 +463,9 @@ impl Dispatch {
     /// Returns a new `Dispatch` that discards events and spans.
     #[inline]
     pub fn none() -> Self {
+        let no_subscriber: &NoSubscriber = &TRACING_DISPATCH_NO_SUBSCRIBER;
         Dispatch {
-            subscriber: Kind::Global(&TRACING_DISPATCH_NO_SUBSCRIBER),
+            subscriber: Kind::Global(no_subscriber),
         }
     }
 

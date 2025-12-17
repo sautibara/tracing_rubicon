@@ -178,7 +178,6 @@
 )]
 #![warn(
     missing_debug_implementations,
-    missing_docs,
     rust_2018_idioms,
     unreachable_pub,
     bad_style,
@@ -252,4 +251,17 @@ feature! {
 
 mod sealed {
     pub trait Sealed<A = ()> {}
+}
+
+/// Enforce the use of the rubicon patch.
+///
+/// This is the only added component to the base crate. Thus, if the rubicon patch isn't used, then
+/// this macro won't exist and the compilation will error.
+#[macro_export]
+macro_rules! expect_rubicon {
+    () => {};
+}
+
+rubicon::compatibility_check! {
+    ("version", env!("CARGO_PKG_VERSION")),
 }
