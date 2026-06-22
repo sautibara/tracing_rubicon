@@ -309,8 +309,6 @@ mod sealed {
 }
 
 #[cfg(feature = "std")]
-use std::prelude::rust_2024::*;
-#[cfg(feature = "std")]
 #[allow(unused_imports)]
 use std::{format, vec};
 
